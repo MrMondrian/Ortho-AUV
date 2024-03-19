@@ -2,9 +2,30 @@ import os
 from PIL import Image
 import numpy as np  # Assuming you want to save image data as NumPy arrays
 import quaternion
+import json
 
 data_dir = "data"  # Path to the data directory
 images = []  # List to store image data and corresponding information
+
+# Load the JSON data
+with open(os.path.join(data_dir, "cameras.json"), "r") as f:
+    camera_data = json.load(f)
+
+# Extract the camera intrinsics parameters
+camera_params = list(camera_data.values())[0]
+width = camera_params['width']
+height = camera_params['height']
+focal_x = camera_params['focal_x']
+focal_y = camera_params['focal_y']
+c_x = camera_params['c_x']
+c_y = camera_params['c_y']
+
+# Create the camera intrinsics matrix
+K = np.array([[focal_x, 0, c_x],
+              [0, focal_y, c_y],
+              [0, 0, 1]])
+
+Kt = np.transpose(K)
 
 # Read data from "our_format.txt"
 with open(os.path.join(data_dir, "our_format.txt"), "r") as f:
@@ -37,24 +58,31 @@ for line in lines:
 
 
 
-def calculate_homo_matrix(image_data_a, image_data_b):
+def calculate_H_matrix(image_data_a, image_data_b):
     quat_a = image_data_a[5]
     quat_b = image_data_b[5]
 
-    xyz_a = np.array(image_data_a[1:4])
-    xyz_b = np.array(image_data_b[1:4])
+    d = image_data_b[3]
 
-    forward_quat = np.quaternion(0,1,0,0)
-    norm_a_quat = quat_a * forward_quat * quat_a.conjugate()
-    norm_b_quat = quat_b * forward_quat * quat_b.conjugate()
+    n = np.array([0,0,1])
 
-    norm_a = np.array([norm_a_quat.x,norm_a_quat.y,norm_a_quat.z])
-    norm_b = np.array([norm_b_quat.x,norm_b_quat.y,norm_b_quat.z])
-
-    xyz_a_to_b = xyz_b - xyz_a
+    ta = np.array(image_data_a[1:4])
+    tb = np.array(image_data_b[1:4])
 
     Ra = quaternion.as_rotation_matrix(quat_a)
-    RbT = quaternion.as_rootation_matrix(quat_b).transpose()
+    RbT = quaternion.as_rotation_matrix(quat_b).transpose()
+
+    Rabt = np.matmul(Ra,RbT)
+
+    H = -np.matmul(Rabt,tb) + ta
+    H = np.matmul(H,n.transpose()) / d
+    H = Rabt - H
+    return H
+
+def calculate_transformation_matrix(image_data_a, image_data_b):
+    Hab = calculate_H_matrix(image_data_a,image_data_b)
+    # for our data set the zs are equal
+    return K @ Hab @ Kt
     
 
 
