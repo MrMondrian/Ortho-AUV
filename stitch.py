@@ -23,7 +23,7 @@ def pixel_coords(image_shape):
     x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(1, -1, height))
 
     # Stack the x and y coordinates into a 2D array of shape (height, width, 2)
-    coords = np.dstack((x, y))
+    coords = np.dstack((x, y,np.ones_like(x)))
 
     return coords
 
@@ -57,6 +57,9 @@ def apply_matrix_to_vectors(array_3d, transformation_matrix):
     
     # Reshape the transformed vectors back to the original 3D shape
     transformed_array = transformed_vectors.reshape(array_3d.shape)
+
+    # divide by homogenous coordinate
+    transformed_array = transformed_array / transformed_array[:,:,2].reshape(array_3d.shape[0],array_3d.shape[1],1)
     
     return transformed_array
 
@@ -106,24 +109,31 @@ def get_image_dimesion(union_bounds,width,height):
     max_x = union_bounds[1]
     min_y = union_bounds[2]
     max_y = union_bounds[3]
-    return (int((max_x - min_x) * width), int((max_y - min_y) * height))
+    return (int((max_x - min_x) * width), int((max_y - min_y) * height),3)
 
 def transform_image(src, target):
-    width, height, _ = src[1].shape
+    height, width, _ = src[1].shape
     mat = calculate_transformation_matrix(target, src)
     src[-1] = apply_matrix_to_vectors(src[1],mat)
+
     src_bounds = get_img_bound(src)
     target_bounds = get_img_bound(target)
     union_bounds = get_bounds_union(np.array([src_bounds, target_bounds]))
+    print(union_bounds)
     new_dim = get_image_dimesion(union_bounds, width, height)
-    new_img = np.zeros(new_dim)
+    new_img = np.zeros(new_dim, dtype=np.uint8)
+
     ndc_to_vp = get_ndc_to_vp_matrix(union_bounds, width, height)
-    for i in range(new_dim[0]):
-        for j in range(new_dim[1]):
-            ndc = np.array([i,j,1])
-            vp = np.matmul(ndc_to_vp, ndc)
-            if vp[0] >= 0 and vp[0] < width and vp[1] >= 0 and vp[1] < height:
-                new_img[i,j] = src[1][vp[0],vp[1]]
+
+    src_corners_transformed = np.array([src[-1][0][0], src[-1][0][-1], src[-1][-1][0], src[-1][-1][-1]])
+    print(src_corners_transformed)
+
+    imgs = [(target[1], target[-1]), (src[1], src[-1])]
+    for img in imgs:
+        for i in range(img[1].shape[0]):
+            for j in range(img[1].shape[1]):
+                vp = np.matmul(ndc_to_vp, img[1][i][j])
+                new_img[int(vp[1])][int(vp[0])] = img[0][i][j]
     return new_img
 
 
