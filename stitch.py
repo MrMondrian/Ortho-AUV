@@ -87,9 +87,52 @@ def calculate_transformation_matrix(image_data_a, image_data_b):
     # for our data set the zs are equal
     return K @ Hab @ Kt
 
+def get_img_bound(image_data):
+    coords = image_data[6]
+    corner_x_values = [coords[0][0][0], coords[0][-1][0], coords[-1][0][0], coords[-1][-1][0]]
+    corner_y_values = [coords[0][0][1], coords[0][-1][1], coords[-1][0][1], coords[-1][-1][1]]
+    return np.arrary([min(corner_x_values), max(corner_x_values), min(corner_y_values), max(corner_y_values)])
+
+def get_bounds_union(bounds):
+    min_x = np.min(bounds[:,0])
+    max_x = np.max(bounds[:,1])
+    min_y = np.min(bounds[:,2])
+    max_y = np.max(bounds[:,3])
+    return np.array([min_x, max_x, min_y, max_y])
+
+def get_image_dimesion(union_bounds,width,height):
+    # takes in bound in normalized camera coordinates, returns the size of the image
+    min_x = union_bounds[0]
+    max_x = union_bounds[1]
+    min_y = union_bounds[2]
+    max_y = union_bounds[3]
+    return (int((max_x - min_x) * width), int((max_y - min_y) * height))
+
 def transform_image(src, target):
+    width, height = src[1].shape
     mat = calculate_transformation_matrix(target, src)
     src[-1] = apply_matrix_to_vectors(mat,src[1])
+    src_bounds = get_img_bound(src)
+    target_bounds = get_img_bound(target)
+    union_bounds = get_bounds_union(np.array([src_bounds, target_bounds]))
+    new_dim = get_image_dimesion(union_bounds, width, height)
+    new_img = np.zeros(new_dim)
+    ndc_to_vp = get_ndc_to_vp_matrix(union_bounds, width, height)
+    for i in range(new_dim[0]):
+        for j in range(new_dim[1]):
+            ndc = np.array([i,j,1])
+            vp = np.matmul(ndc_to_vp, ndc)
+            if vp[0] >= 0 and vp[0] < width and vp[1] >= 0 and vp[1] < height:
+                new_img[i,j] = src[1][vp[0],vp[1]]
+    return new_img
+
+
+def get_ndc_to_vp_matrix(union_bounds, width, height):
+    min_x = union_bounds[0]
+    max_y = union_bounds[3]
+    return np.array([[width/2, 0, -min_x * width/2],
+                     [0, -height/2, -max_y * height/2],
+                     [0, 0, 1]])
 
 
 
@@ -144,3 +187,9 @@ for line in lines:
             images.append((filename, image_data, x, y, z, quat, pixel_coords(image_data.shape)))
     except Exception as e:
         print(f"Error processing image {filename}: {e}")
+
+# Stitch the images together
+stitch1 = transform_image(images[0], images[1])
+# Save the stitched image
+stitch1_image = Image.fromarray(stitch1)
+stitch1_image.save("stitch1.png")
