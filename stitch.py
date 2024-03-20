@@ -17,7 +17,7 @@ def pixel_coords(image_shape):
         np.ndarray: A 2D NumPy array of shape (height, width, 2), where each element
                     contains the normalized camera coordinates (x, y) for the corresponding pixel.
     """
-    height, width = image_shape
+    height, width, _ = image_shape
 
     # Create a grid of (x, y) coordinates in the range [-1, 1]
     x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(1, -1, height))
@@ -69,8 +69,8 @@ def calculate_H_matrix(image_data_a, image_data_b):
 
     n = np.array([0,0,1])
 
-    ta = np.array(image_data_a[1:4])
-    tb = np.array(image_data_b[1:4])
+    ta = np.array([image_data_a[2],image_data_a[4],image_data_a[4]])
+    tb = np.array([image_data_b[2],image_data_b[4],image_data_b[4]])
 
     Ra = quaternion.as_rotation_matrix(quat_a)
     RbT = np.transpose(quaternion.as_rotation_matrix(quat_b))
@@ -91,7 +91,7 @@ def get_img_bound(image_data):
     coords = image_data[6]
     corner_x_values = [coords[0][0][0], coords[0][-1][0], coords[-1][0][0], coords[-1][-1][0]]
     corner_y_values = [coords[0][0][1], coords[0][-1][1], coords[-1][0][1], coords[-1][-1][1]]
-    return np.arrary([min(corner_x_values), max(corner_x_values), min(corner_y_values), max(corner_y_values)])
+    return np.array([min(corner_x_values), max(corner_x_values), min(corner_y_values), max(corner_y_values)])
 
 def get_bounds_union(bounds):
     min_x = np.min(bounds[:,0])
@@ -109,9 +109,9 @@ def get_image_dimesion(union_bounds,width,height):
     return (int((max_x - min_x) * width), int((max_y - min_y) * height))
 
 def transform_image(src, target):
-    width, height = src[1].shape
+    width, height, _ = src[1].shape
     mat = calculate_transformation_matrix(target, src)
-    src[-1] = apply_matrix_to_vectors(mat,src[1])
+    src[-1] = apply_matrix_to_vectors(src[1],mat)
     src_bounds = get_img_bound(src)
     target_bounds = get_img_bound(target)
     union_bounds = get_bounds_union(np.array([src_bounds, target_bounds]))
@@ -178,18 +178,21 @@ for line in lines:
     qz = float(qz)
 
     quat = np.quaternion(qw,qx,qy,qz)
+    quat_to_downcam = np.quaternion(0.707,0,0.707,0)
+    quat = quat * quat_to_downcam
 
     # Process the image data (assuming you have the code from previous part)
     filepath = os.path.join(data_dir, filename)
     try:
         with Image.open(filepath) as image:
             image_data = np.array(image)
-            images.append((filename, image_data, x, y, z, quat, pixel_coords(image_data.shape)))
+            images.append([filename, np.array(image_data), x, y, z, quat, pixel_coords(image_data.shape)])
     except Exception as e:
         print(f"Error processing image {filename}: {e}")
 
 # Stitch the images together
 stitch1 = transform_image(images[0], images[1])
+print(stitch1.shape)
 # Save the stitched image
-stitch1_image = Image.fromarray(stitch1)
+stitch1_image = Image.fromarray(stitch1).convert("RGB")
 stitch1_image.save("stitch1.png")
