@@ -166,9 +166,9 @@ def transform_image(changing, constant):
 
 def get_ndc_to_vp_matrix(union_bounds, width, height):
     min_x = union_bounds[0]
-    min_y = union_bounds[1]
+    min_y = union_bounds[2]
     return np.array([[width/2, 0, -min_x * width/2],
-                     [0, width/2, min_y * height/2],
+                     [0, width/2, -min_y * width/2],
                      [0, 0, 1]])
 
 
