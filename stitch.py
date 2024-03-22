@@ -5,8 +5,6 @@ import quaternion
 import json
 
 
-Q_AUV_CAMERA = np.quaternion(0.5, 0.5, 0.5, 0.5)
-
 def pixel_coords(image_shape):
     """
     Returns a 2D NumPy array containing the normalized camera coordinates for each pixel
@@ -21,8 +19,10 @@ def pixel_coords(image_shape):
     """
     height, width, _ = image_shape
 
+    ratio = height / width
+
     # Create a grid of (x, y) coordinates in the range [-1, 1]
-    x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(1, -1, height))
+    x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(-ratio, ratio, height))
 
     # Stack the x and y coordinates into a 2D array of shape (height, width, 2)
     coords = np.dstack((x, y,np.ones_like(x)))
@@ -45,7 +45,8 @@ def apply_matrix_to_vectors(array_3d, transformation_matrix):
     array_3d = np.asarray(array_3d)
     if array_3d.ndim != 3:
         raise ValueError("Input must be a 3D NumPy array.")
-    
+        # out = np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
+
     # Ensure the transformation matrix is a 3x3 NumPy array
     transformation_matrix = np.asarray(transformation_matrix)
     if transformation_matrix.shape != (3, 3):
@@ -99,16 +100,17 @@ def homography_camera_displacement(R1, R2, t1, t2, n1):
     R12 = R2 @ R1.T
     t12 = R2 @ (- R1.T @ t1) + t2
     d1  = np.inner(n1.ravel(), t1.ravel())
-    print(d1)
-    H12 = R12 + ((t12 @ n1.T) / d1)
+    H12 = R12 #+ ((t12 @ n1.T) / d1)
     H12 /= H12[2,2]
     return H12
 
 def calculate_transformation_matrix(changing, constant):
     Hab = calculate_H_matrix(changing,constant)
-    print(Hab)
     # for our data set the zs are equal
-    return np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
+    # out = np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
+    out = Hab
+    out /= out[2,2]
+    return out
 
 def get_img_bound(image_data):
     coords = image_data[6]
@@ -131,7 +133,7 @@ def get_image_dimesion(union_bounds,width,height):
     max_x = union_bounds[1]
     min_y = union_bounds[2]
     max_y = union_bounds[3]
-    return (int((max_y - min_y) * height/2) + 1,int((max_x - min_x) * width/2) + 1,3)
+    return (int((max_y - min_y) * width/2) + 1,int((max_x - min_x) * width/2) + 1,3)
 
 def transform_image(changing, constant):
     height, width, _ = changing[1].shape
@@ -150,7 +152,6 @@ def transform_image(changing, constant):
     # for corner in src_corners_transformed:
     #     vp = np.matmul(ndc_to_vp, corner)
     #     print(vp)
-
     imgs = [(constant[1], constant[-1]),(changing[1], changing[-1])]
     for img in imgs:
         for i in range(img[1].shape[0]):
@@ -165,21 +166,19 @@ def transform_image(changing, constant):
 
 def get_ndc_to_vp_matrix(union_bounds, width, height):
     min_x = union_bounds[0]
-    max_y = union_bounds[3]
+    min_y = union_bounds[1]
     return np.array([[width/2, 0, -min_x * width/2],
-                     [0, -height/2, max_y * height/2],
+                     [0, width/2, min_y * height/2],
                      [0, 0, 1]])
 
-def quat_nwu_to_neu(quat):
-    return np.quaternion(quat.w, quat.x, -quat.y, quat.z)
-
-def vector_nwu_to_neu(vector):
-    return np.array([vector[0], -vector[1], vector[2]])
 
 
+q_auv_cam = np.quaternion(0,0.707,-0.707,0)
 
+def fix_quat(q_nwu_auv):
+    return q_nwu_auv * q_auv_cam
 
-data_dir = "data"  # Path to the data directory
+data_dir = "data2"  # Path to the data directory
 images = []  # List to store image data and corresponding information
 
 # Load the JSON data
@@ -221,8 +220,8 @@ for line in lines:
     qz = float(qz)
 
     quat = np.quaternion(qw,qx,qy,qz)
-    quat_to_downcam = np.quaternion(0.707,0,0.707,0)
-    quat = quat * quat_to_downcam
+    quat = fix_quat(quat)
+
 
     # Process the image data (assuming you have the code from previous part)
     filepath = os.path.join(data_dir, filename)
@@ -235,6 +234,7 @@ for line in lines:
 
 # Stitch the images together
 stitch1 = transform_image(images[0], images[1])
+print(stitch1.shape)
 # Save the stitched image
 stitch1_image = Image.fromarray(stitch1).convert("RGB")
 stitch1_image.save("stitch1.png")
