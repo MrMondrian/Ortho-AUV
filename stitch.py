@@ -5,6 +5,8 @@ import quaternion
 import json
 
 
+Q_AUV_CAMERA = np.quaternion(0.5, 0.5, 0.5, 0.5)
+
 def pixel_coords(image_shape):
     """
     Returns a 2D NumPy array containing the normalized camera coordinates for each pixel
@@ -17,13 +19,13 @@ def pixel_coords(image_shape):
         np.ndarray: A 2D NumPy array of shape (height, width, 2), where each element
                     contains the normalized camera coordinates (x, y) for the corresponding pixel.
     """
-    height, width = image_shape
+    height, width, _ = image_shape
 
     # Create a grid of (x, y) coordinates in the range [-1, 1]
     x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(1, -1, height))
 
     # Stack the x and y coordinates into a 2D array of shape (height, width, 2)
-    coords = np.dstack((x, y))
+    coords = np.dstack((x, y,np.ones_like(x)))
 
     return coords
 
@@ -57,39 +59,123 @@ def apply_matrix_to_vectors(array_3d, transformation_matrix):
     
     # Reshape the transformed vectors back to the original 3D shape
     transformed_array = transformed_vectors.reshape(array_3d.shape)
+
+    # divide by homogenous coordinate
+    transformed_array = transformed_array / transformed_array[:,:,2].reshape(array_3d.shape[0],array_3d.shape[1],1)
     
     return transformed_array
 
+# def nwu_to_neu_quat(quat):
+#     return np.quaternion(quat.w, quat.x, -quat.y, -quat.z)
 
-def calculate_H_matrix(image_data_a, image_data_b):
-    quat_a = image_data_a[5]
-    quat_b = image_data_b[5]
+# def nwu_to_neu_vector(vector):
+#     return np.array([vector[0], -vector[1], vector[2]])
 
-    d = image_data_b[3]
+def calculate_H_matrix(image_data_changing, image_data_constant):
 
-    n = np.array([0,0,1])
+    R_changing = quaternion.as_rotation_matrix(image_data_changing[5])
+    R_constant = quaternion.as_rotation_matrix(image_data_constant[5])
+    t_changing = np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]])
+    t_constant = np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]])
+    n = np.array([0,0,-1])
+    n1 = R_changing @ n # not too sure if constant or changing
+    return homography_camera_displacement(R_changing, R_constant, t_changing, t_constant, n1)
 
-    ta = np.array(image_data_a[1:4])
-    tb = np.array(image_data_b[1:4])
+def homography_camera_displacement(R1, R2, t1, t2, n1):
+    """
+    Calculate homography matrix for camera displacement c1 to c2.
+    
+    Args:
+      R1: Rotation matrix for camera1
+      R2: Rotation matrix for camera2
+      t1: Translation vector for camera1
+      t2: Translation vector for camera2
+      n1: normal vector for projection plane on camera1 coordinate
+    
+    Return:
+      H12: homography matrix for camera displacement from 1 to 2.
+      d1: distance from the plane to camera1 on camera1 coordincate.
+    """
+    R12 = R2 @ R1.T
+    t12 = R2 @ (- R1.T @ t1) + t2
+    d1  = np.inner(n1.ravel(), t1.ravel())
+    print(d1)
+    H12 = R12 + ((t12 @ n1.T) / d1)
+    H12 /= H12[2,2]
+    return H12
 
-    Ra = quaternion.as_rotation_matrix(quat_a)
-    RbT = np.transpose(quaternion.as_rotation_matrix(quat_b))
-
-    Rabt = np.matmul(Ra,RbT)
-
-    H = -np.matmul(Rabt,tb) + ta
-    H = np.matmul(H,n.transpose()) / d
-    H = Rabt - H
-    return H
-
-def calculate_transformation_matrix(image_data_a, image_data_b):
-    Hab = calculate_H_matrix(image_data_a,image_data_b)
+def calculate_transformation_matrix(changing, constant):
+    Hab = calculate_H_matrix(changing,constant)
+    print(Hab)
     # for our data set the zs are equal
-    return K @ Hab @ Kt
+    return np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
 
-def transform_image(src, target):
-    mat = calculate_transformation_matrix(target, src)
-    src[-1] = apply_matrix_to_vectors(mat,src[1])
+def get_img_bound(image_data):
+    coords = image_data[6]
+    corner_x_values = [coords[0][0][0], coords[0][-1][0], coords[-1][0][0], coords[-1][-1][0]]
+    corner_y_values = [coords[0][0][1], coords[0][-1][1], coords[-1][0][1], coords[-1][-1][1]]
+
+    # find and print min and max of all pixels
+    return np.array([min(corner_x_values), max(corner_x_values), min(corner_y_values), max(corner_y_values)])
+
+def get_bounds_union(bounds):
+    min_x = np.min(bounds[:,0])
+    max_x = np.max(bounds[:,1])
+    min_y = np.min(bounds[:,2])
+    max_y = np.max(bounds[:,3])
+    return np.array([min_x, max_x, min_y, max_y])
+
+def get_image_dimesion(union_bounds,width,height):
+    # takes in bound in normalized camera coordinates, returns the size of the image
+    min_x = union_bounds[0]
+    max_x = union_bounds[1]
+    min_y = union_bounds[2]
+    max_y = union_bounds[3]
+    return (int((max_y - min_y) * height/2) + 1,int((max_x - min_x) * width/2) + 1,3)
+
+def transform_image(changing, constant):
+    height, width, _ = changing[1].shape
+    mat = calculate_transformation_matrix(changing, constant)
+    changing[-1] = apply_matrix_to_vectors(changing[-1],mat)
+
+    changing_bounds = get_img_bound(changing)
+    constant_bounds = get_img_bound(constant)
+    union_bounds = get_bounds_union(np.array([changing_bounds, constant_bounds]))
+    new_dim = get_image_dimesion(union_bounds, width, height)
+    new_img = np.zeros(new_dim, dtype=np.uint8)
+
+    ndc_to_vp = get_ndc_to_vp_matrix(union_bounds, width, height)
+
+    # src_corners_transformed = np.array([changing[-1][0][0], changing[-1][0][-1], changing[-1][-1][0], changing[-1][-1][-1]])
+    # for corner in src_corners_transformed:
+    #     vp = np.matmul(ndc_to_vp, corner)
+    #     print(vp)
+
+    imgs = [(constant[1], constant[-1]),(changing[1], changing[-1])]
+    for img in imgs:
+        for i in range(img[1].shape[0]):
+            for j in range(img[1].shape[1]):
+                vp = np.matmul(ndc_to_vp, img[1][i][j])
+                if vp[0] < 0 or vp[0] >= new_dim[1] or vp[1] < 0 or vp[1] >= new_dim[0]:
+                    # print(f"out of bounds: {img[1][i][j],vp}")
+                    continue
+                new_img[int(vp[1])][int(vp[0])] = img[0][i][j]
+    return new_img
+
+
+def get_ndc_to_vp_matrix(union_bounds, width, height):
+    min_x = union_bounds[0]
+    max_y = union_bounds[3]
+    return np.array([[width/2, 0, -min_x * width/2],
+                     [0, -height/2, max_y * height/2],
+                     [0, 0, 1]])
+
+def quat_nwu_to_neu(quat):
+    return np.quaternion(quat.w, quat.x, -quat.y, quat.z)
+
+def vector_nwu_to_neu(vector):
+    return np.array([vector[0], -vector[1], vector[2]])
+
 
 
 
@@ -135,12 +221,20 @@ for line in lines:
     qz = float(qz)
 
     quat = np.quaternion(qw,qx,qy,qz)
+    quat_to_downcam = np.quaternion(0.707,0,0.707,0)
+    quat = quat * quat_to_downcam
 
     # Process the image data (assuming you have the code from previous part)
     filepath = os.path.join(data_dir, filename)
     try:
         with Image.open(filepath) as image:
             image_data = np.array(image)
-            images.append((filename, image_data, x, y, z, quat, pixel_coords(image_data.shape)))
+            images.append([filename, np.array(image_data), x, y, z, quat, pixel_coords(image_data.shape)])
     except Exception as e:
         print(f"Error processing image {filename}: {e}")
+
+# Stitch the images together
+stitch1 = transform_image(images[0], images[1])
+# Save the stitched image
+stitch1_image = Image.fromarray(stitch1).convert("RGB")
+stitch1_image.save("stitch1.png")
