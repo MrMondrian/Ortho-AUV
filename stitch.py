@@ -51,18 +51,12 @@ def apply_matrix_to_vectors(array_3d, transformation_matrix):
     
     return transformed_array
 
-# def nwu_to_neu_quat(quat):
-#     return np.quaternion(quat.w, quat.x, -quat.y, -quat.z)
+def calculate_H_matrix(changing, constant):
 
-# def nwu_to_neu_vector(vector):
-#     return np.array([vector[0], -vector[1], vector[2]])
-
-def calculate_H_matrix(image_data_changing, image_data_constant):
-
-    R_changing = quaternion.as_rotation_matrix(image_data_changing[5])
-    R_constant = quaternion.as_rotation_matrix(image_data_constant[5])
-    t_changing = R_changing @ np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]]).reshape((3, 1))
-    t_constant = R_constant @ np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]]).reshape((3, 1))
+    R_changing = quaternion.as_rotation_matrix(changing["quat"])
+    R_constant = quaternion.as_rotation_matrix(constant["quat"])
+    t_changing = R_changing @ changing["position"].reshape((3, 1))
+    t_constant = R_constant @ constant["position"].reshape((3, 1))
     n = np.array([0,0,-1]).reshape((3, 1 ))
     n1 = R_changing @ n # not too sure if constant or changing
     return homography_camera_displacement(R_changing, R_constant, t_changing, t_constant, n1)
@@ -126,28 +120,25 @@ def offset_pixels(coords, union_bounds):
 
 def transform_image(changing, constant):
     mat = calculate_transformation_matrix(changing, constant)
-    changing[-1] = apply_matrix_to_vectors(changing[-1],mat)
-    return (changing[1],changing[-1])
-
+    changing["pixel_coords"] = apply_matrix_to_vectors(changing["pixel_coords"],mat)
 
 def render_image(constant,changing_imgs):
-    height, width, _ = constant[0].shape
-    bounds = [get_img_bound(constant[1])]
+    bounds = [get_img_bound(constant["pixel_coords"])]
     for img in changing_imgs:
-        bounds.append(get_img_bound(img[1]))
+        bounds.append(get_img_bound(img["pixel_coords"]))
     union_bounds = get_bounds_union(np.array(bounds))
     for img in changing_imgs:
-        offset_pixels(img[1], union_bounds)
-    offset_pixels(constant[1], union_bounds)
+        offset_pixels(img["pixel_coords"], union_bounds)
+    offset_pixels(constant["pixel_coords"], union_bounds)
 
     new_dim = get_image_dimesion(union_bounds)
     new_img = np.zeros(new_dim, dtype=np.uint8)
     imgs = [constant] + changing_imgs
     for img in imgs:
-        for i in range(img[1].shape[0]):
-            for j in range(img[1].shape[1]):
-                vp = img[1][i][j]
-                new_img[int(vp[1]),int(vp[0]),:] = img[0][i][j]
+        for i in range(img["image_data"].shape[0]):
+            for j in range(img["image_data"].shape[1]):
+                vp = img["pixel_coords"][i][j]
+                new_img[int(vp[1]),int(vp[0]),:] = img["image_data"][i][j]
     return new_img
 
 
@@ -208,26 +199,21 @@ for line in lines:
     try:
         with Image.open(filepath) as image:
             image_data = np.array(image)
-            images.append([filename, np.array(image_data), x, y, z, quat, pixel_coords(image_data.shape)])
+            img_dict = {"filename": filename, "image_data": image_data, "position": np.array([x,y,z]), "quat": quat, "pixel_coords": pixel_coords(image_data.shape)}
+            images.append(img_dict)
     except Exception as e:
         print(f"Error processing image {filename}: {e}")
 
-# # Stitch the images together
-# stitch1 = transform_image(images[0], images[1])
-# print(stitch1.shape)
-# # Save the stitched image
-# stitch1_image = Image.fromarray(stitch1).convert("RGB")
-# stitch1_image.save("stitch1.png")
 
-constant = images[0]
-images.pop(0)
-changing_data = []
+index = -1#len(images) // 2
+constant = images[index]
+images.pop(index)
 i = 1
 for image_data in images:
     print(i)
     i+=1
-    changing_data.append(transform_image(image_data, constant))
+    transform_image(image_data, constant)
 
-stitched_image = render_image((constant[1],constant[-1]), changing_data)
+stitched_image = render_image(constant, images)
 stitched_image = Image.fromarray(stitched_image).convert("RGB")
 stitched_image.save("stitched_image.png")
