@@ -87,7 +87,6 @@ def homography_camera_displacement(R1, R2, t1, t2, n1):
     d1  = -30#np.inner(n1.ravel(), t1.ravel())
     H12 = R12 + ((t12 @ n1.T) / d1)
     H12 /= H12[2,2]
-    print(H12)
     return H12
 
 def calculate_transformation_matrix(changing, constant):
@@ -97,8 +96,7 @@ def calculate_transformation_matrix(changing, constant):
     out /= out[2,2]
     return out
 
-def get_img_bound(image_data):
-    coords = image_data[6]
+def get_img_bound(coords):
     corner_x_values = [coords[0][0][0], coords[0][-1][0], coords[-1][0][0], coords[-1][-1][0]]
     corner_y_values = [coords[0][0][1], coords[0][-1][1], coords[-1][0][1], coords[-1][-1][1]]
 
@@ -112,7 +110,7 @@ def get_bounds_union(bounds):
     max_y = np.max(bounds[:,3])
     return np.array([min_x, max_x, min_y, max_y])
 
-def get_image_dimesion(union_bounds,width,height):
+def get_image_dimesion(union_bounds):
     # takes in bound in normalized camera coordinates, returns the size of the image
     min_x = union_bounds[0]
     max_x = union_bounds[1]
@@ -120,26 +118,31 @@ def get_image_dimesion(union_bounds,width,height):
     max_y = union_bounds[3]
     return int((max_y - min_y)) + 1, int((max_x - min_x)) + 1, 3
 
-def offset_pixels(image_data, union_bounds):
+def offset_pixels(coords, union_bounds):
     min_x = union_bounds[0]
     min_y = union_bounds[2]
-    image_data[6][:,:,0] -= min_x
-    image_data[6][:,:,1] -= min_y
+    coords[:,:,0] -= min_x
+    coords[:,:,1] -= min_y
 
 def transform_image(changing, constant):
-    height, width, _ = changing[1].shape
     mat = calculate_transformation_matrix(changing, constant)
     changing[-1] = apply_matrix_to_vectors(changing[-1],mat)
+    return (changing[1],changing[-1])
 
-    changing_bounds = get_img_bound(changing)
-    constant_bounds = get_img_bound(constant)
-    union_bounds = get_bounds_union(np.array([changing_bounds, constant_bounds]))
-    offset_pixels(changing, union_bounds)
-    offset_pixels(constant, union_bounds)
-    new_dim = get_image_dimesion(union_bounds, width, height)
+
+def render_image(constant,changing_imgs):
+    height, width, _ = constant[0].shape
+    bounds = [get_img_bound(constant[1])]
+    for img in changing_imgs:
+        bounds.append(get_img_bound(img[1]))
+    union_bounds = get_bounds_union(np.array(bounds))
+    for img in changing_imgs:
+        offset_pixels(img[1], union_bounds)
+    offset_pixels(constant[1], union_bounds)
+
+    new_dim = get_image_dimesion(union_bounds)
     new_img = np.zeros(new_dim, dtype=np.uint8)
-
-    imgs = [(constant[1], constant[-1]),(changing[1], changing[-1])]
+    imgs = [constant] + changing_imgs
     for img in imgs:
         for i in range(img[1].shape[0]):
             for j in range(img[1].shape[1]):
@@ -147,13 +150,6 @@ def transform_image(changing, constant):
                 new_img[int(vp[1]),int(vp[0]),:] = img[0][i][j]
     return new_img
 
-
-def get_ndc_to_vp_matrix(union_bounds, width, height):
-    min_x = union_bounds[0]
-    min_y = union_bounds[2]
-    return np.array([[width/2, 0, -min_x * width/2],
-                     [0, width/2, -min_y * width/2],
-                     [0, 0, 1]])
 
 
 
@@ -216,9 +212,22 @@ for line in lines:
     except Exception as e:
         print(f"Error processing image {filename}: {e}")
 
-# Stitch the images together
-stitch1 = transform_image(images[0], images[1])
-print(stitch1.shape)
-# Save the stitched image
-stitch1_image = Image.fromarray(stitch1).convert("RGB")
-stitch1_image.save("stitch1.png")
+# # Stitch the images together
+# stitch1 = transform_image(images[0], images[1])
+# print(stitch1.shape)
+# # Save the stitched image
+# stitch1_image = Image.fromarray(stitch1).convert("RGB")
+# stitch1_image.save("stitch1.png")
+
+constant = images[0]
+images.pop(0)
+changing_data = []
+i = 1
+for image_data in images:
+    print(i)
+    i+=1
+    changing_data.append(transform_image(image_data, constant))
+
+stitched_image = render_image((constant[1],constant[-1]), changing_data)
+stitched_image = Image.fromarray(stitched_image).convert("RGB")
+stitched_image.save("stitched_image.png")
