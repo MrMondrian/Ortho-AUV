@@ -53,35 +53,22 @@ def apply_matrix_to_vectors(array_3d, transformation_matrix):
 
 def calculate_H_matrix(changing, constant):
 
-    R_changing = quaternion.as_rotation_matrix(changing["quat"])
-    R_constant = quaternion.as_rotation_matrix(constant["quat"])
-    t_changing = R_changing @ changing["position"].reshape((3, 1))
-    t_constant = R_constant @ constant["position"].reshape((3, 1))
-    n = np.array([0,0,-1]).reshape((3, 1 ))
-    n1 = R_changing @ n # not too sure if constant or changing
-    return homography_camera_displacement(R_changing, R_constant, t_changing, t_constant, n1)
+    pos_changing = quaternion.rotate_vectors(changing["quat"],changing["position"])
+    pos_constant = quaternion.rotate_vectors(constant["quat"],constant["position"])
+    n = np.array([0,0,-1])
+    n = quaternion.rotate_vectors(changing["quat"],n).reshape((3,1)) # not too sure if constant or changing
 
-def homography_camera_displacement(R1, R2, t1, t2, n1):
-    """
-    Calculate homography matrix for camera displacement c1 to c2.
-    
-    Args:
-      R1: Rotation matrix for camera1
-      R2: Rotation matrix for camera2
-      t1: Translation vector for camera1
-      t2: Translation vector for camera2
-      n1: normal vector for projection plane on camera1 coordinate
-    
-    Return:
-      H12: homography matrix for camera displacement from 1 to 2.
-      d1: distance from the plane to camera1 on camera1 coordincate.
-    """
-    R12 = R2 @ R1.T
-    t12 = R2 @ (- R1.T @ t1) + t2
-    d1  = -30#np.inner(n1.ravel(), t1.ravel())
-    H12 = R12 + ((t12 @ n1.T) / d1)
-    H12 /= H12[2,2]
-    return H12
+    return get_homo_matrix(changing["quat"],constant["quat"],pos_changing, pos_constant, n)
+
+def get_homo_matrix(q_a, q_b,pos_a, pos_b, n):
+
+    q_a_b = q_b.inverse() * q_a
+    pos_a_b =  pos_b - quaternion.rotate_vectors(q_a_b, pos_a)
+    d1  = -30
+    R_a_b = quaternion.as_rotation_matrix(q_a_b)
+    H = R_a_b + ((pos_a_b.reshape((3,1)) @ n.T) / d1)
+    H /= H[2,2]
+    return H
 
 def calculate_transformation_matrix(changing, constant):
     Hab = calculate_H_matrix(changing,constant)
