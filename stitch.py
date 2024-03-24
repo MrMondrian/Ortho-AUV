@@ -55,18 +55,14 @@ def calculate_H_matrix(changing, constant):
 
     pos_changing = quaternion.rotate_vectors(changing["quat"],changing["position"])
     pos_constant = quaternion.rotate_vectors(constant["quat"],constant["position"])
-    n = np.array([0,0,-1])
+    n = np.array([0,0,1])
     n = quaternion.rotate_vectors(changing["quat"],n).reshape((3,1)) # not too sure if constant or changing
 
-    return get_homo_matrix(changing["quat"],constant["quat"],pos_changing, pos_constant, n)
-
-def get_homo_matrix(q_a, q_b,pos_a, pos_b, n):
-
-    q_a_b = q_b.inverse() * q_a
-    pos_a_b =  pos_b - quaternion.rotate_vectors(q_a_b, pos_a)
-    d1  = -30
-    R_a_b = quaternion.as_rotation_matrix(q_a_b)
-    H = R_a_b + ((pos_a_b.reshape((3,1)) @ n.T) / d1)
+    q_b_a = constant["quat"].inverse() * changing["quat"]
+    pos_a_b =  pos_constant - quaternion.rotate_vectors(q_b_a, pos_changing)
+    d  = -30
+    R_b_a = quaternion.as_rotation_matrix(q_b_a)
+    H = R_b_a - ((pos_a_b.reshape((3,1)) @ n.T) / d)
     H /= H[2,2]
     return H
 
