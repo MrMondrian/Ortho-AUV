@@ -61,9 +61,9 @@ def calculate_H_matrix(image_data_changing, image_data_constant):
 
     R_changing = quaternion.as_rotation_matrix(image_data_changing[5])
     R_constant = quaternion.as_rotation_matrix(image_data_constant[5])
-    t_changing = R_changing @ np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]])
-    t_constant = R_constant @ np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]])
-    n = np.array([0.707,0.707,0])
+    t_changing = R_changing @ np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]]).reshape((3, 1))
+    t_constant = R_constant @ np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]]).reshape((3, 1))
+    n = np.array([0,0,-1]).reshape((3, 1 ))
     n1 = R_changing @ n # not too sure if constant or changing
     return homography_camera_displacement(R_changing, R_constant, t_changing, t_constant, n1)
 
@@ -84,9 +84,10 @@ def homography_camera_displacement(R1, R2, t1, t2, n1):
     """
     R12 = R2 @ R1.T
     t12 = R2 @ (- R1.T @ t1) + t2
-    d1  = np.inner(n1.ravel(), t1.ravel())
+    d1  = -30#np.inner(n1.ravel(), t1.ravel())
     H12 = R12 + ((t12 @ n1.T) / d1)
     H12 /= H12[2,2]
+    print(H12)
     return H12
 
 def calculate_transformation_matrix(changing, constant):
@@ -161,7 +162,7 @@ q_auv_cam = np.quaternion(0,0.707,-0.707,0)
 def fix_quat(q_nwu_auv):
     return q_nwu_auv * q_auv_cam
 
-data_dir = "data2"  # Path to the data directory
+data_dir = "data"  # Path to the data directory
 images = []  # List to store image data and corresponding information
 
 # Load the JSON data
