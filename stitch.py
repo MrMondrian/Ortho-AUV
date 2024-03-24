@@ -135,10 +135,9 @@ def render_image(constant,changing_imgs):
     new_img = np.zeros(new_dim, dtype=np.uint8)
     imgs = [constant] + changing_imgs
     for img in imgs:
-        for i in range(img["image_data"].shape[0]):
-            for j in range(img["image_data"].shape[1]):
-                vp = img["pixel_coords"][i][j]
-                new_img[int(vp[1]),int(vp[0]),:] = img["image_data"][i][j]
+        img["pixel_coords"] = img["pixel_coords"][:,:,:2]
+        img["pixel_coords"] = img["pixel_coords"].astype(int)
+        new_img[img["pixel_coords"][:,:,1],img["pixel_coords"][:,:,0],:] = img["image_data"]
     return new_img
 
 
