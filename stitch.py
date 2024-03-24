@@ -6,28 +6,13 @@ import json
 
 
 def pixel_coords(image_shape):
-    """
-    Returns a 2D NumPy array containing the normalized camera coordinates for each pixel
-    in the given image shape.
-
-    Args:
-        image_shape (tuple): A tuple of two integers representing the image height and width.
-
-    Returns:
-        np.ndarray: A 2D NumPy array of shape (height, width, 2), where each element
-                    contains the normalized camera coordinates (x, y) for the corresponding pixel.
-    """
-    height, width, _ = image_shape
-
-    ratio = height / width
-
-    # Create a grid of (x, y) coordinates in the range [-1, 1]
-    x, y = np.meshgrid(np.linspace(-1, 1, width), np.linspace(-ratio, ratio, height))
-
-    # Stack the x and y coordinates into a 2D array of shape (height, width, 2)
-    coords = np.dstack((x, y,np.ones_like(x)))
-
-    return coords
+    '''returns numpy array of pixel indicies in homogenous coordinates'''
+    coords = np.indices(image_shape[:2])
+    out = np.zeros((image_shape[0],image_shape[1],3))
+    out[:,:,0] = coords[1]
+    out[:,:,1] = coords[0]
+    out[:,:,2] = 1
+    return out
 
 
 def apply_matrix_to_vectors(array_3d, transformation_matrix):
@@ -76,9 +61,9 @@ def calculate_H_matrix(image_data_changing, image_data_constant):
 
     R_changing = quaternion.as_rotation_matrix(image_data_changing[5])
     R_constant = quaternion.as_rotation_matrix(image_data_constant[5])
-    t_changing = np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]])
-    t_constant = np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]])
-    n = np.array([0,0,-1])
+    t_changing = R_changing @ np.array([image_data_changing[2], image_data_changing[3], image_data_changing[4]])
+    t_constant = R_constant @ np.array([image_data_constant[2], image_data_constant[3], image_data_constant[4]])
+    n = np.array([0.707,0.707,0])
     n1 = R_changing @ n # not too sure if constant or changing
     return homography_camera_displacement(R_changing, R_constant, t_changing, t_constant, n1)
 
@@ -100,15 +85,14 @@ def homography_camera_displacement(R1, R2, t1, t2, n1):
     R12 = R2 @ R1.T
     t12 = R2 @ (- R1.T @ t1) + t2
     d1  = np.inner(n1.ravel(), t1.ravel())
-    H12 = R12 #+ ((t12 @ n1.T) / d1)
+    H12 = R12 + ((t12 @ n1.T) / d1)
     H12 /= H12[2,2]
     return H12
 
 def calculate_transformation_matrix(changing, constant):
     Hab = calculate_H_matrix(changing,constant)
     # for our data set the zs are equal
-    # out = np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
-    out = Hab
+    out = np.matmul(np.matmul(K, Hab),np.linalg.inv(K))
     out /= out[2,2]
     return out
 
@@ -133,7 +117,13 @@ def get_image_dimesion(union_bounds,width,height):
     max_x = union_bounds[1]
     min_y = union_bounds[2]
     max_y = union_bounds[3]
-    return (int((max_y - min_y) * width/2) + 1,int((max_x - min_x) * width/2) + 1,3)
+    return int((max_y - min_y)) + 1, int((max_x - min_x)) + 1, 3
+
+def offset_pixels(image_data, union_bounds):
+    min_x = union_bounds[0]
+    min_y = union_bounds[2]
+    image_data[6][:,:,0] -= min_x
+    image_data[6][:,:,1] -= min_y
 
 def transform_image(changing, constant):
     height, width, _ = changing[1].shape
@@ -143,24 +133,17 @@ def transform_image(changing, constant):
     changing_bounds = get_img_bound(changing)
     constant_bounds = get_img_bound(constant)
     union_bounds = get_bounds_union(np.array([changing_bounds, constant_bounds]))
+    offset_pixels(changing, union_bounds)
+    offset_pixels(constant, union_bounds)
     new_dim = get_image_dimesion(union_bounds, width, height)
     new_img = np.zeros(new_dim, dtype=np.uint8)
 
-    ndc_to_vp = get_ndc_to_vp_matrix(union_bounds, width, height)
-
-    # src_corners_transformed = np.array([changing[-1][0][0], changing[-1][0][-1], changing[-1][-1][0], changing[-1][-1][-1]])
-    # for corner in src_corners_transformed:
-    #     vp = np.matmul(ndc_to_vp, corner)
-    #     print(vp)
     imgs = [(constant[1], constant[-1]),(changing[1], changing[-1])]
     for img in imgs:
         for i in range(img[1].shape[0]):
             for j in range(img[1].shape[1]):
-                vp = np.matmul(ndc_to_vp, img[1][i][j])
-                if vp[0] < 0 or vp[0] >= new_dim[1] or vp[1] < 0 or vp[1] >= new_dim[0]:
-                    # print(f"out of bounds: {img[1][i][j],vp}")
-                    continue
-                new_img[int(vp[1])][int(vp[0])] = img[0][i][j]
+                vp = img[1][i][j]
+                new_img[int(vp[1]),int(vp[0]),:] = img[0][i][j]
     return new_img
 
 
