@@ -28,6 +28,17 @@ def fish_position(depth, x, y, z, quat):
           x, y, z (float): translation of AUV
           quat (quaternion): orientation of AUV
      """
+     euler = quaternion.as_euler(quat)
+     roll, pitch = euler[0], euler[1]
+     fish_local_vec = []
+     fish_local_vec[0] = np.cos(roll)
+     fish_local_vec[1] = np.cos(pitch)
+     fish_local_vec[2] = depth
+     
+     fish_global = quaternion.rotate(quat, fish_local_vec)
+
+     return fish_global
+      
      
 
 def filter_fish_translations(fish_translations, translation_time):
@@ -57,30 +68,4 @@ def save_heatmap(heatmap, path):
           heatmap (???): heatmap representation of fish distribution
           path (string): path to save the heatmap
      """
-
-
-
-def decompose_distance(distance=1, orientation=np.quaternion(0.9238795,0,0.3826834,0)):
-    """
-    Decompose a distance into its x, y, and z components given a rotation.
-
-    Args:
-        distance (float): Distance.
-        orientation (quaternion.Quaternion): Quaternion representing orientation.
-
-    Returns:
-        tuple: Tuple containing (dx, dy, dz), the x, y, and z components of the distance.
-    """
-    # Convert quaternion to rotation matrix
-    rotation_matrix = quaternion.as_rotation_matrix(orientation)
-
-    # Transform a unit vector representing the distance direction
-    direction_vector = np.dot(rotation_matrix, np.array([1, 0, 0]))  # Assuming distance is along x-axis
-
-    # Decompose the distance into its x, y, and z components
-    dx, dy, dz = direction_vector * distance
-
-    return dx, dy, dz
-
-
-print(decompose_distance())
+     pass
