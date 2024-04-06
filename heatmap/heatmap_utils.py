@@ -216,3 +216,55 @@ def fix_quat(q_nwu_auv):
 # print(f"quat_45_roll_45_yaw - {fish_position(depth, arr, quat_45_roll_45_yaw)}")
 # print(f"quat_90_roll_90_pitch - {fish_position(depth, arr, quat_90_roll_90_pitch)}")
 # print(f"quat_45_roll_45_pitch_45_yaw - {fish_position(depth, arr, quat_45_roll_45_pitch_45_yaw)}")
+
+# import numpy as np
+# from scipy import stats
+# from mayavi import mlab
+
+# mu, sigma = 0, 0.1 
+# x = 10*np.random.normal(mu, sigma, 500)
+# y = 10*np.random.normal(mu, sigma, 500)    
+# z = 10*np.random.normal(mu, sigma, 500)
+
+# xyz = np.vstack([x,y,z])
+# kde = stats.gaussian_kde(xyz)
+
+# # Evaluate kde on a grid
+# xmin, ymin, zmin = x.min(), y.min(), z.min()
+# xmax, ymax, zmax = x.max(), y.max(), z.max()
+# xi, yi, zi = np.mgrid[xmin:xmax:30j, ymin:ymax:30j, zmin:zmax:30j]
+# coords = np.vstack([item.ravel() for item in [xi, yi, zi]]) 
+# density = kde(coords).reshape(xi.shape)
+
+# # Plot scatter with mayavi
+# figure = mlab.figure('DensityPlot')
+
+# grid = mlab.pipeline.scalar_field(xi, yi, zi, density)
+# min = density.min()
+# max=density.max()
+# mlab.pipeline.volume(grid, vmin=min, vmax=min + .5*(max-min))
+
+# mlab.axes()
+# mlab.show()
+
+# fig = plt.figure(figsize=(10, 10)) 
+# ax = fig.add_subplot(111, projection='3d') 
+
+# x = np.random.rand(100)
+# y = np.random.rand(100)
+# z = np.random.rand(100)
+
+# # creating the heatmap 
+# img = ax.scatter(x, y, z, s=10, color='coral') 
+
+# # adding title and labels 
+# ax.set_title("3D Fish Positions Heatmap") 
+# ax.set_xlabel('X-coordinate') 
+# ax.set_ylabel('Y-coordinate') 
+# ax.set_zlabel('Z-coordinate') 
+
+# # convert plot to html 3d interactive plot
+# plotly_fig = go.Figure()
+# plotly_fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='markers', marker=dict(size=2, color='green')))
+
+# plotly_fig.write_html("interactive_heatmap.html")
