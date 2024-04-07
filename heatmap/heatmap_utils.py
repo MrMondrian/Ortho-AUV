@@ -7,7 +7,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 
-def load_predictions(path_to_predictions):
+def load_predictions(path_to_predictions_file, path_to_depth_folder):
      """
      returns a list with all the info about the predictions info
 
@@ -16,25 +16,45 @@ def load_predictions(path_to_predictions):
 
      return:
           predictions (list): [[x_1, y_1, width_1, height_1], ... for all instances]
+          repeat (dict): number of detected fish per image
      """
-     with open(path_to_predictions, "r") as f:
+     with open(path_to_predictions_file, "r") as f:
           lines = f.readlines()
           lines = lines[1:]  # skip the header line
      
      predictions = []
+     repeat = {}
 
      for line in lines:
-          filename, x, y, width, height = line.strip().split()
-          predictions.append([x, y, width, height])
-     
-     return predictions
+          filename_raw, filename_depth, x, y, width, height = line.strip().split()
+          
+          if filename_raw in repeat:
+               repeat[filename_raw] += 1
+          else:
+               repeat[filename_raw] = 1
+          
+          path_to_depth_file = path_to_depth_folder + filename_depth
+          x = float(x)
+          y = float(y)
+          width = float(width)
+          height = float(height)
 
-def load_poses(path_to_poses):
+          # bounding box calculations:
+          x_0 = int(x - width / 2)
+          x_1 = int(x + width / 2)
+          y_0 = int(y - height / 2)
+          y_1 = int(y + height / 2)
+          predictions.append([path_to_depth_file, x_0, x_1, y_0, y_1])
+     
+     return predictions, repeat
+
+def load_poses(path_to_poses, repeat):
      """ 
      returns a list with all the auv poses for each prediction
 
      args:
           path_to_predictions (string): path to poses text file
+          repeat (dict): number of detected fish per image
 
      return:
           poses (list): [[x_1, y_1, z_1, quat_1], ... for all instances]
@@ -46,7 +66,9 @@ def load_poses(path_to_poses):
      poses = []
 
      for line in lines:
-          filename, x, y, z, qw, qx, qy, qz = line.strip().split()
+          filename_raw, _, x, y, z, qw, qx, qy, qz = line.strip().split()
+
+          n = repeat[filename_raw]
 
           # convert numerical data to appropriate types
           x = float(x)
@@ -60,29 +82,38 @@ def load_poses(path_to_poses):
           quat = np.quaternion(qw, qx, qy, qz)
           quat = fix_quat(quat)
 
-          poses.append([x, y, z, quat])
+          for i in range(n):
+               poses.append([x, y, z, quat])
      
      return poses
 
-def fish_distance(img_depth):
+def fish_distance(image_depth_path, x_0, x_1, y_0, y_1):
+     """ NOT TESTED - ARRAY SLICING MIGHT BE WRONG """
      """ 
      returns the distance from the camera to the fish 
 
      args:
-          img (np.array): a 2D array representing the depth camera values after fish detection on raw image   
+          img (float): path to image depth 
+          x_0, x_1, y_0, x_1 (int, int, int, int): bounding box coordinates
      """
+     # load depth map
+     depth_map = np.loadtxt(image_depth_path)
+
+     # select only bounding box
+     fish_depth_cut = depth_map[y_0 : y_1 + 1, x_0 : x_1 + 1]
+
      # Find min value of the image and get distance points within 1 std_dev of min_value
-     min_value = np.min(img_depth)
-     std_dev = np.std(img_depth)
+     min_value = np.min(fish_depth_cut)
+     std_dev = np.std(fish_depth_cut)
      min_range = min_value + std_dev
      max_range = min_value - std_dev
 
-     within_range = img_depth[(img_depth >= max_range) & (img_depth <= min_range)]
+     within_range = fish_depth_cut[(fish_depth_cut >= max_range) & (fish_depth_cut <= min_range)]
 
      # distance to the fish will be average of the values within 1 std_dev
      return np.average(within_range)
 
-def fish_position(distance_to_fish, camera_position, camera_orientation):
+def get_fish_position(distance_to_fish, camera_position, camera_orientation):
      """
      returns position of the fish
 
@@ -124,7 +155,7 @@ def get_heatmap_size(fish_positions, auv_positions):
 
      args:
           fish_positions (list): filtered list of the position [x, y, z] of every fish
-          auv_positions (list): list of all auv positions ([x, y, z]
+          auv_positions (list): list of all auv positions [x, y, z]
      
      return:
           axis_size (list): [(min_x, max_x), (min_y, max_y), (min_z, max_z)]
@@ -133,8 +164,8 @@ def get_heatmap_size(fish_positions, auv_positions):
      axis_size = []
 
      for i in range(3):
-          min_axis = np.min(np.min(fish_positions[:, i]), np.min(auv_positions[:, i]))
-          max_axis = np.max(np.max(fish_positions[:, i]), np.max(auv_positions[:, i]))
+          min_axis = np.min(np.array(np.min(fish_positions[:, i]), np.min(auv_positions[:, i])))
+          max_axis = np.max(np.array(np.max(fish_positions[:, i]), np.max(auv_positions[:, i])))
           axis_size.append((min_axis, max_axis))
 
      return axis_size
