@@ -17,6 +17,7 @@ for i in range(len(predictions)):
     image_depth_path, x_0, x_1, y_0, y_1 = predictions[i]
     fish_dist = fish_distance(image_depth_path, x_0, x_1, y_0, y_1)
     predictions[i].append(fish_dist)
+    print(fish_dist)
 
 fish_positions = []
 

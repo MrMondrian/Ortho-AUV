@@ -39,11 +39,23 @@ def load_predictions(path_to_predictions_file, path_to_depth_folder):
           width = float(width)
           height = float(height)
 
+          # print("new fish: ")
+          # print("x:", x)
+          # print("y:", y)
+          # print("width:", width)
+          # print("height:", height)
+          
+
           # bounding box calculations:
           x_0 = int(x - width / 2)
           x_1 = int(x + width / 2)
           y_0 = int(y - height / 2)
           y_1 = int(y + height / 2)
+          # print("x_0", x_0)
+          # print("x_1", x_1)
+          # print("y_0", y_0)
+          # print("y_1", y_1)
+          # print("\n")
           predictions.append([path_to_depth_file, x_0, x_1, y_0, y_1])
      
      return predictions, repeat
