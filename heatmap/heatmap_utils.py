@@ -2,6 +2,7 @@ import numpy as np
 import quaternion
 from mpl_toolkits.mplot3d import Axes3D 
 import matplotlib.pyplot as plt 
+from sklearn.cluster import DBSCAN
 from pylab import *
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
@@ -37,25 +38,14 @@ def load_predictions(path_to_predictions_file, path_to_depth_folder):
           x = float(x)
           y = float(y)
           width = float(width)
-          height = float(height)
-
-          # print("new fish: ")
-          # print("x:", x)
-          # print("y:", y)
-          # print("width:", width)
-          # print("height:", height)
-          
+          height = float(height)         
 
           # bounding box calculations:
           x_0 = int(x - width / 2)
           x_1 = int(x + width / 2)
           y_0 = int(y - height / 2)
           y_1 = int(y + height / 2)
-          # print("x_0", x_0)
-          # print("x_1", x_1)
-          # print("y_0", y_0)
-          # print("y_1", y_1)
-          # print("\n")
+
           predictions.append([path_to_depth_file, x_0, x_1, y_0, y_1])
      
      return predictions, repeat
@@ -151,15 +141,73 @@ def get_fish_position(distance_to_fish, camera_position, camera_orientation):
      return global_fish_vector
     
 
-def filter_fish_positions(fish_positions, position_time):
+def filter_fish_positions(fish_positions):
      """
      returns a filtered/cleaned mapping of fish
 
      args:
           fish_positions (list): list of position [x, y, z] of every fish detected
-          position_time (list): the time at which each position was calculated
      """
      pass
+
+def calculate_and_plot_cluster(fish_positions):
+     """ 
+     creates and saves a 3D scatter plot with clusters colouring based on the proximity between fish positions
+
+     args:
+          fish_positions (list): list of position [x, y, z] of every fish detected
+     
+     returns:
+          clusters_3d (np.ndarray): each element corresponds to the cluster that the i-th fish position belongs to (-1 = outliers)
+     """
+     # Defining and fitting the DBSCAN model
+     dbscan = DBSCAN(eps=5, min_samples=2)
+     clusters_3d = dbscan.fit_predict(fish_positions)
+
+     # Extracting cluster labels and data points for each cluster
+     unique_labels_3d = np.unique(clusters_3d)
+     clusters_fish_positions = []
+     for label in unique_labels_3d:
+          class_member_mask_3d = (clusters_3d == label)
+          xyz = fish_positions[class_member_mask_3d]
+          clusters_fish_positions.append(xyz)
+
+     # Plotting
+     fig = go.Figure()
+
+     # Add traces for each cluster
+     for i, cluster_data in enumerate(clusters_fish_positions):
+          if unique_labels_3d[i] == -1:
+               name = 'Outliers'
+     else:
+          name = f'Cluster {unique_labels_3d[i]}'
+     fig.add_trace(go.Scatter3d(
+          x=cluster_data[:, 0],
+          y=cluster_data[:, 1],
+          z=cluster_data[:, 2],
+          mode='markers',
+          marker=dict(
+               size=5,
+               opacity=0.8,
+          ),
+          name=name
+     ))
+
+     # Update layout
+     fig.update_layout(
+     scene=dict(
+          xaxis=dict(title='X-coordinate'),
+          yaxis=dict(title='Y-coordinate'),
+          zaxis=dict(title='Z-coordinate'),
+     ),
+     title='Fish Clustering'
+     )
+
+     # Save the plot as an HTML file
+     fig.write_html('fish_clusters_3d_plot.html')
+
+     return clusters_3d
+
 
 def get_heatmap_size(fish_positions, auv_positions):
      """
@@ -190,36 +238,52 @@ def make_heatmap(fish_positions, heatmap_size):
           fish_positions (list): filtered list of the position [x, y, z] of every fish 
           auv_positions (list): list of all auv positions [x, y, z] 
      """ 
-     # creating figures 
-     fig = plt.figure(figsize=(10, 10)) 
-     ax = fig.add_subplot(111, projection='3d') 
+     kde = gaussian_kde(data.T)
 
-     # set axis to be the size of observable lake (auv positions + fish positions)
-     ax.set_xlim(heatmap_size[0][0], heatmap_size[0][1])
-     ax.set_ylim(heatmap_size[1][0], heatmap_size[1][1])
-     ax.set_zlim(heatmap_size[2][0], heatmap_size[2][1])
+     # Define grid for plotting
+     x_grid, y_grid, z_grid = np.meshgrid(
+          np.linspace(data[:, 0].min(), data[:, 0].max(), 50),
+          np.linspace(data[:, 1].min(), data[:, 1].max(), 50),
+          np.linspace(data[:, 2].min(), data[:, 2].max(), 50)
+     )
+
+     density = kde(np.vstack([x_grid.ravel(), y_grid.ravel(), z_grid.ravel()]))
+
+     # Define threshold for transparency
+     threshold = 0.2  # Adjust as needed
+
+     # Normalize density to [0, 1]
+     density_normalized = (density - density.min()) / (density.max() - density.min())
+
+     # Set alpha based on density and threshold
+
+     # Create scatter3d plot
+     fig = go.Figure(data=go.Scatter3d(
+          x=x_grid.ravel(),
+          y=y_grid.ravel(),
+          z=z_grid.ravel(),
+          mode='markers',
+          marker=dict(
+               size=3,
+               color=density_normalized,
+               opacity=0.2,
+               colorscale='viridis',
+          )
+     ))
+
+     # Set layout
+     fig.update_layout(
+     scene=dict(
+          xaxis_title='X-coordinate',
+          yaxis_title='Y-coordinate',
+          zaxis_title='Z-coordinate',
+     ),
+     title='Density Plot'
+     )
+
+     # Save plot as HTML file
+     fig.write_html("density_plot_interactive.html")
      
-     x = fish_positions[:, 0]
-     y = fish_positions[:, 1]
-     z = fish_positions[:, 2]
-
-     # creating the heatmap 
-     img = ax.scatter(x, y, z, s=10, color='coral') 
-
-     # adding title and labels 
-     ax.set_title("3D Fish Positions Heatmap") 
-     ax.set_xlabel('X-coordinate') 
-     ax.set_ylabel('Y-coordinate') 
-     ax.set_zlabel('Z-coordinate') 
-
-     # convert plot to html 3d interactive plot
-     plotly_fig = go.Figure()
-     plotly_fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='markers', marker=dict(size=2, color='green')))
-
-     plotly_fig.write_html("interactive_heatmap.html")
-
-
-
 
 # returns q_nwu_cam given q_nwu_auv
 def fix_quat(q_nwu_auv):
@@ -227,6 +291,20 @@ def fix_quat(q_nwu_auv):
      q_auv_cam = np.quaternion(0, 0.707, -0.707, 0)
 
      return q_nwu_auv * q_auv_cam
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 # depth = 1
 # arr = [1, 1, 1]
@@ -260,54 +338,9 @@ def fix_quat(q_nwu_auv):
 # print(f"quat_90_roll_90_pitch - {fish_position(depth, arr, quat_90_roll_90_pitch)}")
 # print(f"quat_45_roll_45_pitch_45_yaw - {fish_position(depth, arr, quat_45_roll_45_pitch_45_yaw)}")
 
-# import numpy as np
-# from scipy import stats
-# from mayavi import mlab
 
-# mu, sigma = 0, 0.1 
-# x = 10*np.random.normal(mu, sigma, 500)
-# y = 10*np.random.normal(mu, sigma, 500)    
-# z = 10*np.random.normal(mu, sigma, 500)
 
-# xyz = np.vstack([x,y,z])
-# kde = stats.gaussian_kde(xyz)
 
-# # Evaluate kde on a grid
-# xmin, ymin, zmin = x.min(), y.min(), z.min()
-# xmax, ymax, zmax = x.max(), y.max(), z.max()
-# xi, yi, zi = np.mgrid[xmin:xmax:30j, ymin:ymax:30j, zmin:zmax:30j]
-# coords = np.vstack([item.ravel() for item in [xi, yi, zi]]) 
-# density = kde(coords).reshape(xi.shape)
 
-# # Plot scatter with mayavi
-# figure = mlab.figure('DensityPlot')
 
-# grid = mlab.pipeline.scalar_field(xi, yi, zi, density)
-# min = density.min()
-# max=density.max()
-# mlab.pipeline.volume(grid, vmin=min, vmax=min + .5*(max-min))
 
-# mlab.axes()
-# mlab.show()
-
-# fig = plt.figure(figsize=(10, 10)) 
-# ax = fig.add_subplot(111, projection='3d') 
-
-# x = np.random.rand(100)
-# y = np.random.rand(100)
-# z = np.random.rand(100)
-
-# # creating the heatmap 
-# img = ax.scatter(x, y, z, s=10, color='coral') 
-
-# # adding title and labels 
-# ax.set_title("3D Fish Positions Heatmap") 
-# ax.set_xlabel('X-coordinate') 
-# ax.set_ylabel('Y-coordinate') 
-# ax.set_zlabel('Z-coordinate') 
-
-# # convert plot to html 3d interactive plot
-# plotly_fig = go.Figure()
-# plotly_fig.add_trace(go.Scatter3d(x=x, y=y, z=z, mode='markers', marker=dict(size=2, color='green')))
-
-# plotly_fig.write_html("interactive_heatmap.html")

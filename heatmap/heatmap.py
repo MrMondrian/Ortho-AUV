@@ -5,19 +5,23 @@ import quaternion
 import json
 from argparse import ArgumentParser
 import cv2
+from scipy.ndimage import gaussian_filter
 
 from heatmap_utils import *
 
 
 
-predictions, repeat = load_predictions("vision/prediction.txt", "data4/")
-poses = load_poses("data4/out_format.txt", repeat)
-
+predictions, repeat = load_predictions("vision/prediction.txt", "data/")
+poses = load_poses("data/out_format.txt", repeat)
+fish_distances = []
 for i in range(len(predictions)):
     image_depth_path, x_0, x_1, y_0, y_1 = predictions[i]
     fish_dist = fish_distance(image_depth_path, x_0, x_1, y_0, y_1)
+    fish_distances.append(fish_dist)
     predictions[i].append(fish_dist)
-    print(fish_dist)
+
+print(gaussian_filter(fish_distances, sigma=0.1))
+
 
 fish_positions = []
 
@@ -29,6 +33,7 @@ for i in range(len(predictions)):
     fish_position = get_fish_position(fish_dist, camera_position, camera_orientation)
 
     fish_positions.append(fish_position)
+    
 
 # fish_positions = filter_fish_positions(fish_positions, ???position_time???)
 # 
@@ -46,12 +51,7 @@ heatmap_size = get_heatmap_size(fish_positions, auv_positions)
 
 make_heatmap(fish_positions, heatmap_size)
 
-""" 
 
-
-
-
-"""
 
 
 
