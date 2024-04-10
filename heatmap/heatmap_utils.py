@@ -9,6 +9,120 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 import json
 from argparse import ArgumentParser
+from sklearn.datasets import make_blobs
+
+
+
+def calculate_coordinates_local(u, v, d, c_x, c_y, focal_x, focal_y):
+     x_over_z = (c_x - u) / focal_x
+     y_over_z = (c_y - v) / focal_y
+     # this is in z north, y up, x east
+     z = d / np.sqrt(1 + x_over_z**2 + y_over_z**2)
+     x = x_over_z * z
+     y = y_over_z * z 
+
+     # convert to cam local frame
+     x_cam_local = z
+     y_cam_local = -x
+     z_cam_local = y
+
+     return x, y, z
+
+def calculate_coordinates_world(local_x, local_y, local_z, auv_x, auv_y, auv_z, auv_quat, cam_position_offset):
+     global_obj_pos_offset = quaternion.rotate_vectors(auv_quat, np.array([local_x, local_y, local_z]))
+     global_x = global_obj_pos_offset[0] + auv_x + cam_position_offset[0]
+     global_y = global_obj_pos_offset[1] + auv_y + cam_position_offset[1]
+     global_z = global_obj_pos_offset[2] + auv_z + cam_position_offset[2]
+
+     return global_x, global_y, global_z
+     
+
+def load_predictions2(path_to_predictions_file, path_to_depth_folder):
+     """
+     returns a list with all the info about the predictions info
+
+     args:
+          path_to_predictions (string): path to prediction text file
+
+     return:
+          predictions (list): [[path_to_depth_file, x_1, y_1, width_1, height_1], ... for all detection instances]
+          repeat (dict): number of detected fish per image
+     """
+     with open(path_to_predictions_file, "r") as f:
+          lines = f.readlines()
+          lines = lines[1:]  # skip the header line
+     
+     predictions = []
+     repeat = {}
+
+     for line in lines:
+          filename_raw, filename_depth, x, y, width, height = line.strip().split()
+          
+          if filename_raw in repeat:
+               repeat[filename_raw] += 1
+          else:
+               repeat[filename_raw] = 1
+          
+          path_to_depth_file = path_to_depth_folder + filename_depth
+
+          x = int(float(x))
+          y = int(float(y))
+          width = int(float(width))
+          height = int(float(height))
+
+          predictions.append([path_to_depth_file, x, y, width, height])
+     
+     return predictions, repeat
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+def normalize(depth_map):
+    depth_map[np.isnan(depth_map)] = 0
+
+    max_value = np.max(depth_map)
+    min_value = np.min(depth_map)
+
+    if max_value == min_value:
+        return np.zeros_like(depth_map)
+
+     # Normalize array to range [0, 255]
+    normalized_depth = 255 * (depth_map - min_value) / (max_value - min_value)
+    
+    
+    return normalized_depth.astype(np.uint8)
 
 
 def load_camera_params(path_to_camera_params):
@@ -204,10 +318,6 @@ def get_fish_position(point_cloud, auv_pose):
      lx = (max_lx + min_lx) / 2
      ly = (max_ly + min_ly) / 2
      lz = (max_lz + min_lz) / 2
-
-     print(lx, ly, lz)
-     # print(ly)
-     # print(lz)
      
      global_obj_pos_offset = quaternion.rotate_vectors(auv_quat, np.array([lx,ly,lz]))
      
@@ -255,7 +365,7 @@ def filter_fish_positions(fish_positions):
      pass
 
 
-def calculate_and_plot_cluster(fish_positions):
+def calculate_and_plot_cluster(fish_positions, eps=15, min_samples=3):
      """ 
      creates and saves a 3D scatter plot with clusters colouring based on the proximity between fish positions
 
@@ -265,53 +375,42 @@ def calculate_and_plot_cluster(fish_positions):
      returns:
           clusters_3d (np.ndarray): each element corresponds to the cluster that the i-th fish position belongs to (-1 = outliers)
      """
-     # Defining and fitting the DBSCAN model
-     dbscan = DBSCAN(eps=5, min_samples=2)
-     clusters_3d = dbscan.fit_predict(fish_positions)
+     dbscan = DBSCAN(eps=eps, min_samples=min_samples)
+     dbscan.fit(fish_positions)
+     labels = dbscan.labels_
 
-     # Extracting cluster labels and data points for each cluster
-     unique_labels_3d = np.unique(clusters_3d)
-     clusters_fish_positions = []
-     for label in unique_labels_3d:
-          class_member_mask_3d = (clusters_3d == label)
-          xyz = fish_positions[class_member_mask_3d]
-          clusters_fish_positions.append(xyz)
-
-     # Plotting
-     fig = go.Figure()
-
-     # Add traces for each cluster
-     for i, cluster_data in enumerate(clusters_fish_positions):
-          if unique_labels_3d[i] == -1:
-               name = 'Outliers'
-     else:
-          name = f'Cluster {unique_labels_3d[i]}'
-     fig.add_trace(go.Scatter3d(
-          x=cluster_data[:, 0],
-          y=cluster_data[:, 1],
-          z=cluster_data[:, 2],
+     # Create a scatter plot
+     scatter = go.Scatter3d(
+          x=fish_positions[:, 0],
+          y=fish_positions[:, 1],
+          z=fish_positions[:, 2],
           mode='markers',
           marker=dict(
                size=5,
-               opacity=0.8,
-          ),
-          name=name
-     ))
-
-     # Update layout
-     fig.update_layout(
-     scene=dict(
-          xaxis=dict(title='X-coordinate'),
-          yaxis=dict(title='Y-coordinate'),
-          zaxis=dict(title='Z-coordinate'),
-     ),
-     title='Fish Clustering'
+               color=labels,
+               colorscale='Viridis',
+               opacity=0.8
+          )
      )
 
-     # Save the plot as an HTML file
-     fig.write_html('fish_clusters_3d_plot.html')
+     # Plot layout
+     layout = go.Layout(
+          title='3D Fish Positions Scatter Plot with DBSCAN Clusters',
+          scene=dict(
+               xaxis=dict(title='X'),
+               yaxis=dict(title='Y'),
+               zaxis=dict(title='Z')
+          )
+     )
 
-     return clusters_3d
+     # Create the figure
+     fig = go.Figure(data=[scatter], layout=layout)
+
+     # Show the interactive plot
+     fig.show()
+
+     # Save the plot as HTML
+     fig.write_html("3d_scatter_plot1.html", auto_open=True)
 
 
 def get_heatmap_size(fish_positions, auv_positions):
@@ -336,7 +435,7 @@ def get_heatmap_size(fish_positions, auv_positions):
      return axis_size
 
 
-def make_heatmap(fish_positions, heatmap_size):
+def make_heatmap(fish_positions):
      """
      returns a heatmap with fish distribution
 
@@ -348,9 +447,9 @@ def make_heatmap(fish_positions, heatmap_size):
 
      # Define grid for plotting
      x_grid, y_grid, z_grid = np.meshgrid(
-          np.linspace(fish_positions[:, 0].min(), fish_positions[:, 0].max(), 50),
-          np.linspace(fish_positions[:, 1].min(), fish_positions[:, 1].max(), 50),
-          np.linspace(fish_positions[:, 2].min(), fish_positions[:, 2].max(), 50)
+          np.linspace(np.min(fish_positions[:, 0]), np.max(fish_positions[:, 0]), 50),
+          np.linspace(np.min(fish_positions[:, 1]), np.max(fish_positions[:, 1]), 50),
+          np.linspace(np.min(fish_positions[:, 2]), np.max(fish_positions[:, 2]), 50)
      )
 
      density = kde(np.vstack([x_grid.ravel(), y_grid.ravel(), z_grid.ravel()]))
@@ -397,56 +496,3 @@ def fix_quat(q_nwu_auv):
      q_auv_cam = np.quaternion(0, 0.707, -0.707, 0)
 
      return q_nwu_auv * q_auv_cam
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# depth = 1
-# arr = [1, 1, 1]
-# quat_no_rotation = np.quaternion(1, 0, 0, 0)
-# quat_45_roll = np.quaternion(0.9238795, 0.3826834, 0, 0)
-# quat_90_roll = np.quaternion(0.7071068, 0.7071068, 0, 0)
-# quat_180_roll = np.quaternion(0, 1, 0, 0)
-# quat_45_pitch = np.quaternion(0.9238795, 0, 0.3826834, 0)
-# quat_90_pitch = np.quaternion(0.7071068, 0, 0.7071068, 0)
-# quat_180_pitch = np.quaternion(0, 0, 1, 0)
-# quat_45_yaw = np.quaternion(0.9238795, 0, 0, 0.3826834)
-# quat_90_yaw = np.quaternion(0.7071068, 0, 0, 0.7071068)
-# quat_180_yaw = np.quaternion(0, 0, 0, 1)
-
-# print(f"no rotation - {fish_position(depth, arr, quat_no_rotation)}")
-# print(f"45 roll - {fish_position(depth, arr, quat_45_roll)}")
-# print(f"90 roll - {fish_position(depth, arr, quat_90_roll)}")
-# print(f"180 roll - {fish_position(depth, arr, quat_180_roll)}")
-# print(f"45 pitch - {fish_position(depth, arr, quat_45_pitch)}")
-# print(f"90 pitch - {fish_position(depth, arr, quat_90_pitch)}")
-# print(f"180 pitch - {fish_position(depth, arr, quat_180_pitch)}")
-# print(f"45 yaw - {fish_position(depth, arr, quat_45_yaw)}")
-# print(f"90 yaw - {fish_position(depth, arr, quat_90_yaw)}")
-# print(f"180 yaw - {fish_position(depth, arr, quat_180_yaw)}")
-
-# quat_45_roll_45_yaw = np.quaternion(0.8535534, 0.3535534, -0.1464466, 0.3535534)
-# quat_90_roll_90_pitch = np.quaternion(0.5, 0.5, 0.5, 0.5)
-# quat_45_roll_45_pitch_45_yaw = np.quaternion(0.7325378, 0.4619398, 0.1913417, 0.4619398)
-
-# print(f"quat_45_roll_45_yaw - {fish_position(depth, arr, quat_45_roll_45_yaw)}")
-# print(f"quat_90_roll_90_pitch - {fish_position(depth, arr, quat_90_roll_90_pitch)}")
-# print(f"quat_45_roll_45_pitch_45_yaw - {fish_position(depth, arr, quat_45_roll_45_pitch_45_yaw)}")
-
-
-
-
-
-
-
