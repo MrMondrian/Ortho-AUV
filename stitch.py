@@ -23,7 +23,6 @@ args = parser.parse_args()
 
 data_dir = args.data_dir
 
-data_dir = "data"  # Path to the data directory
 images = []  # List to store image data and corresponding information
 
 # Load the JSON data
@@ -78,7 +77,7 @@ for line in lines:
         print(f"Error processing image {filename}: {e}")
 
 
-index = -1#len(images) // 2
+index = 0#len(images) // 2
 constant = images[index]
 images.pop(index)
 i = 1
